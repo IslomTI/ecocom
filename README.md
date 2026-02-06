@@ -1,64 +1,93 @@
-#ExoRouters
-'''
+Вот исправленная, структурированная и отформатированная версия для GitHub (`README.md`).
+
+Я исправил синтаксические ошибки (например, лишние скобки, неправильные команды `apt-get`, логику BGP) и оформил всё в блоки кода для удобного копирования.
+
+---
+
+# 🚀 Network & System Administration Cheat Sheet
+
+Шпаргалка для настройки оборудования и сервисов (EcoRouter, Alt Linux, Samba, Zabbix).
+**Легенда:** Всё, что в `<< >>` — это переменные, которые нужно менять под ситуацию.
+
+---
+
+## 🌐 1. EcoRouter (Network)
+
+```bash
 enable
 configure terminal
 
-Имя устройства
-hostname <<hostname>>
-domain-name <<domain-name>>
-interface gigabitethernet <<int-(0/0)|(0/1.vlan)>>
- description <<net-name>> | encapsulation dot1Q <<vlan>>
- ip address <<ip-adress <<mask>>
+! 1. Базовая настройка
+hostname <<HOSTNAME>>
+domain-name <<DOMAIN_NAME>>
+
+! 2. Интерфейсы
+! Физический интерфейс
+interface gigabitethernet <<INT_NUM>>
+ description <<DESC>>
+ ip address <<IP_ADDRESS>> <<MASK>>
  no shutdown
 exit
 
-Настройка BGP с провайдером
-router bgp <<big-AS>>
- bgp router-id <<ip-adress>>
- neighbor <<shlus>> remote-as <<AS>>
- neighbor <<shlus>> description <<AS-name>>
+! Саб-интерфейс (VLAN)
+interface gigabitethernet <<INT_NUM>>.<<VLAN_ID>>
+ encapsulation dot1Q <<VLAN_ID>>
+ ip address <<IP_ADDRESS>> <<MASK>>
+ no shutdown
+exit
+
+! 3. BGP (Связь с провайдером)
+router bgp <<MY_AS>>
+ bgp router-id <<MY_ROUTER_ID_IP>>
+ neighbor <<ISP_IP>> remote-as <<ISP_AS>>
+ neighbor <<ISP_IP>> description ISP
  address-family ipv4
-  neighbor <<shlus>> activate
-  network <<shlus-1?>> mask <<mask>>
+  neighbor <<ISP_IP>> activate
+  ! Анонсируем СВОЮ сеть (не шлюз!), маска обычная
+  network <<MY_EXTERNAL_NET>> mask <<MASK>>
+  ! Если нужно отдать дефолт соседу (не провайдеру, а внутрь):
+  ! neighbor <<NEIGHBOR_IP>> default-originate
  exit
 exit
 
-neighbor 178.207.179.1 default-originate
-
-Настройка GRE туннеля до офиса
+! 4. GRE Туннель
 interface Tunnel1
- ip address <<ip-address-pk>> <<mask>>
- tunnel source <<ip-adress>>
- tunnel destination <<ip-address-2>>
+ ip address <<TUNNEL_IP>> 255.255.255.252
+ tunnel source <<MY_EXTERNAL_IP>>
+ tunnel destination <<REMOTE_EXTERNAL_IP>>
  tunnel mode gre ip
+ ip ospf message-digest-key 1 md5 <<OSPF_PASS>>
+exit
 
-Настройка OSPF
-ip ospf message-digest-key 1 md5 <<password>>
+! 5. OSPF (Внутренняя маршрутизация)
 router ospf 1
- router-id <<ip-adress-(1.1.1.1)>>
+ router-id <<ROUTER_ID_IP>>
  passive-interface default
  no passive-interface Tunnel1
- no passive-interface gigabitethernet <<int-(0/1)|(0/1.300)>>
- | area 0 authentication message-digest
- network 10.10.10.0 0.0.0.3 area 0
- network 10.0.1.0 0.0.0.3 area 0
+ ! Включаем интерфейсы, смотрящие в локалку
+ no passive-interface gigabitethernet <<LAN_INT>>
  area 0 authentication message-digest
+ ! Сети с обратной маской (Wildcard): /30 -> 0.0.0.3, /24 -> 0.0.0.255
+ network <<TUNNEL_NET>> 0.0.0.3 area 0
+ network <<LAN_NET>> <<WILDCARD>> area 0
 exit
 write
-'''
 
-# Ecorouter (RADIUS Client)
+```
 
+---
+
+## 🔐 2. EcoRouter (RADIUS Client)
+
+```bash
 enable
 conf t
 
 aaa new-model
-
-radius-server host 192.168.100.10 key radius_secret
-
+radius-server host <<RADIUS_SERVER_IP>> key <<RADIUS_SECRET>>
 aaa authentication login default group radius local
 
-username admin privilege 15 secret P@ssw0rdLocal
+username admin privilege 15 secret <<LOCAL_PASS>>
 
 line console 0
  login authentication default
@@ -70,332 +99,318 @@ line vty 0 4
 exit
 write
 
-#Alt Linuxs
-'''
-hostnamectl set-hostname <<host-name>>
+```
 
-Создаем Bond0 (active-backup)
-nano /etc/net/ifaces/bond0/options
-TYPE=bond
-bond-mode 1
-bond-miimon 100
-nano /etc/net/ifaces/bond0/ports
-ens4
-ens5
-/etc/net/ifaces/bond0/ipv4address -> BOOTPROTO=static
+---
 
-rm -rf /etc/net/ifaces/ens4
-rm -rf /etc/net/ifaces/ens5
+## 🐧 3. Alt Linux Network (`etcnet`)
 
-Vlan
-nano /etc/net/ifaces/vlan300/options
-TYPE=vlan
-VID=300
-HOST=bond0
-/etc/net/ifaces/vlan300/ipv4address -> <<ip-adress-rout/mask32>>
-/etc/net/ifaces/vlan300/ipv4route -> default via <<shlus-rout>>
+> **Путь:** `/etc/net/ifaces/`
+> **Применение:** `systemctl restart network` и `ip a`
 
-# VLAN на бонде
-nano /etc/net/ifaces/bond0.100/options
-TYPE=vlan
-VID=100
-HOST=bond0
-'''
+### LACP Aggregation (Bonding)
 
-# VLAN на порту серверов (ens6)
-nano /etc/net/ifaces/ens6.100/options
-TYPE=vlan
-VID=100
-HOST=ens6
+```bash
+# 1. Создаем Bond0
+mkdir -p /etc/net/ifaces/bond0
+echo "TYPE=bond" > /etc/net/ifaces/bond0/options
+echo "bond-mode 1" >> /etc/net/ifaces/bond0/options
+echo "bond-miimon 100" >> /etc/net/ifaces/bond0/options
+echo "BOOTPROTO=static" > /etc/net/ifaces/bond0/ipv4address
 
-# Мост br100
-nano /etc/net/ifaces/br100/options
-TYPE=bri
-bond0.100
-ens6.100
+# Добавляем порты в bond0
+echo "ens4" > /etc/net/ifaces/bond0/ports
+echo "ens5" >> /etc/net/ifaces/bond0/ports
 
-'''
-systemctl restart network
-ip a
-'''
+# Чистим физические порты (чтобы не мешали)
+mkdir -p /etc/net/ifaces/ens4 /etc/net/ifaces/ens5
+echo "TYPE=eth" > /etc/net/ifaces/ens4/options
+echo "TYPE=eth" > /etc/net/ifaces/ens5/options
 
-# srv1-2-cod (Alt Linux) - iSCSI Target
-'''
-/etc/net/ifaces/ens18/options -> TYPE=eth
-/etc/net/ifaces/ens18/ipv4address -> <<ip-adress/mask32>>
-/etc/net/ifaces/ens18/ipv4route -> default via <<shlus>>
-systemctl restart network
-'''
+```
 
-apt-get install targetcli | freeradius freeradius-utils
+### VLAN (L3 Interface - Management)
+
+```bash
+# Интерфейс с IP-адресом (шлюз для свитча)
+mkdir -p /etc/net/ifaces/vlan<<VLAN_ID>>
+echo "TYPE=vlan" > /etc/net/ifaces/vlan<<VLAN_ID>>/options
+echo "VID=<<VLAN_ID>>" >> /etc/net/ifaces/vlan<<VLAN_ID>>/options
+echo "HOST=bond0" >> /etc/net/ifaces/vlan<<VLAN_ID>>/options
+echo "<<IP_ADDRESS>>/24" > /etc/net/ifaces/vlan<<VLAN_ID>>/ipv4address
+echo "default via <<GATEWAY_IP>>" > /etc/net/ifaces/vlan<<VLAN_ID>>/ipv4route
+
+```
+
+### Switching (Bridge VLANs)
+
+*Если нужно прокинуть VLAN 100 с bond0 на ens6:*
+
+```bash
+# 1. VLAN на входящем порту (bond0)
+mkdir -p /etc/net/ifaces/bond0.100
+echo "TYPE=vlan" > /etc/net/ifaces/bond0.100/options
+echo "VID=100" >> /etc/net/ifaces/bond0.100/options
+echo "HOST=bond0" >> /etc/net/ifaces/bond0.100/options
+
+# 2. VLAN на исходящем порту (ens6)
+mkdir -p /etc/net/ifaces/ens6.100
+echo "TYPE=vlan" > /etc/net/ifaces/ens6.100/options
+echo "VID=100" >> /etc/net/ifaces/ens6.100/options
+echo "HOST=ens6" >> /etc/net/ifaces/ens6.100/options
+
+# 3. Мост (Bridge)
+mkdir -p /etc/net/ifaces/br100
+echo "TYPE=bri" > /etc/net/ifaces/br100/options
+# Перечисляем интерфейсы через пробел или новой строкой
+echo "bond0.100 ens6.100" > /etc/net/ifaces/br100/ports
+
+```
+
+---
+
+## 💾 4. Storage & Services (SRV2 - Target & RADIUS)
+
+**Настройка сети SRV2:**
+`/etc/net/ifaces/ens18/options` -> `TYPE=eth`
+`/etc/net/ifaces/ens18/ipv4address` -> `<<IP_ADDRESS>>/24`
+`/etc/net/ifaces/ens18/ipv4route` -> `default via <<GATEWAY>>`
+
+### iSCSI Target
+
+```bash
+apt-get install targetcli
 systemctl enable --now target
 
-
 targetcli
+# В консоли:
 /backstores/block create name=disk1 dev=/dev/sdb
-# Создаем цель (Target)
-/iscsi create iqn.2026-01.region.ssa2026.cod:data.target
-# Разрешаем доступ клиенту (ACL)
-/iscsi/iqn.2026-01.region.ssa2026.cod:data.target/tpg1/acls create iqn.2026-01.region.ssa2026.cod:iscsi
-# Привязываем диск
-/iscsi/iqn.2026-01.region.ssa2026.cod:data.target/tpg1/luns create /backstores/block/disk1
+/iscsi create <<IQN_TARGET_NAME>>
+/iscsi/<<IQN_TARGET_NAME>>/tpg1/acls create <<IQN_INITIATOR_NAME>>
+/iscsi/<<IQN_TARGET_NAME>>/tpg1/luns create /backstores/block/disk1
 exit
 
-SRV2
-nano /etc/raddb/clients.conf
-client rtr-cod {
-    ipaddr = 10.10.30.1
-    secret = radius_secret
-}
-client sw1-cod {
-    ipaddr = 10.10.30.11
-    secret = radius_secret
+```
+
+### RADIUS (FreeRADIUS)
+
+```bash
+apt-get install freeradius freeradius-utils
+
+# /etc/raddb/clients.conf
+client <<ROUTER_HOSTNAME>> {
+    ipaddr = <<ROUTER_IP>>
+    secret = <<RADIUS_SECRET>>
 }
 
-nano /etc/raddb/users
-netuser Cleartext-Password := "P@ssw0rd"
+# /etc/raddb/users
+<<USER>> Cleartext-Password := "<<PASS>>"
        Service-Type = Administrative-User
 
-
 systemctl enable --now radiusd
-radtest netuser P@ssw0rd localhost 0 testing123
+# Тест:
+radtest <<USER>> <<PASS>> localhost 0 testing123
 
+```
+
+---
+
+## 🛠️ 5. Infrastructure (SRV1 - DNS, CA, Initiator)
+
+### DNS (Bind)
+
+```bash
 apt-get install bind bind-utils
 
-
-nano /etc/bind/options.conf
+# /etc/bind/options.conf
 options {
     listen-on { any; };
     allow-query { any; };
     recursion yes;
-    forwarders { 100.100.100.100; };
+    forwarders { <<ISP_DNS_IP>>; };
     dnssec-validation no;
 };
 
-nano /etc/bind/local.conf
-zone "cod.ssa2026.region" IN {
+# /etc/bind/local.conf
+zone "<<DOMAIN>>" IN {
     type master;
-    file "/var/lib/bind/cod.ssa2026.region.db";
+    file "/var/lib/bind/db.<<DOMAIN>>";
 };
-zone "100.168.192.in-addr.arpa" IN {
+zone "<<REVERSE_ZONE>>.in-addr.arpa" IN {
     type master;
-    file "/var/lib/bind/100.168.192.db";
+    file "/var/lib/bind/db.reverse";
 };
 
-nano /var/lib/bind/cod.ssa2026.region.db
+# Файл зоны: /var/lib/bind/db.<<DOMAIN>>
 $TTL 86400
-@   IN  SOA     srv1-cod.cod.ssa2026.region. root.cod.ssa2026.region. (
-        2026012801 ; Serial
-        3600       ; Refresh
-        1800       ; Retry
-        604800     ; Expire
-        86400 )    ; Minimum TTL
+@   IN  SOA     srv1.<<DOMAIN>>. root.<<DOMAIN>>. ( ... )
+@   IN  NS      srv1.<<DOMAIN>>.
+@   IN  A       <<SRV1_IP>>
+srv1     IN A   <<SRV1_IP>>
+monitoring IN CNAME srv1
 
-@       IN  NS      srv1-cod.cod.ssa2026.region.
-@       IN  A       192.168.100.10
+```
 
-; Записи для устройств
-srv1-cod IN  A       192.168.100.10
-srv2-cod IN  A       192.168.100.11
-fw-cod   IN  A       192.168.100.1
-rtr-cod  IN  A       10.10.30.1
-sw1-cod  IN  A       10.10.30.11
-sw2-cod  IN  A       10.10.30.12
-sip-cod  IN  A       192.168.100.20
-admin-cod IN A       10.10.30.100
-monitoring IN CNAME  srv1-cod
+### CA (OpenSSL)
 
-
-Проверка: `systemctl enable --now bind`
-
-
+```bash
 mkdir -p /var/ca/{certs,crl,newcerts,private}
 chmod 700 /var/ca/private
 touch /var/ca/index.txt
 echo 1000 > /var/ca/serial
 cp /etc/ssl/openssl.cnf /var/ca/openssl.cnf
 
-nano /var/ca/openssl.cnf
-* `dir = /var/ca`
-* `default_days = 1825`
-* `organizationName_default = IRPO`
-* `commonName_default = ssa2026`
+# Правка /var/ca/openssl.cnf:
+# dir = /var/ca
+# default_days = 1825
 
 cd /var/ca
 openssl genrsa -out private/ca.key 4096
-openssl req -new -x509 -key private/ca.key -out ca.crt -days 1825 -config openssl.cnf
-cp ca.crt /usr/share/ca-certificates/ssa2026.crt
+openssl req -new -x509 -key private/ca.key -out ca.crt -config openssl.cnf
+cp ca.crt /usr/share/ca-certificates/<<CA_NAME>>.crt
 update-ca-trust
 
-apt-get install open-iscsi lvm2 nfs-utils
-echo "InitiatorName=iqn.2026-01.region.ssa2026.cod:iscsi" > /etc/iscsi/initiatorname.iscsi
-systemctl restart iscsid
+```
 
-iscsiadm -m discovery -t st -p 192.168.100.11
+### iSCSI Initiator & NFS Server
+
+```bash
+apt-get install open-iscsi lvm2 nfs-utils
+
+# 1. Connect
+echo "InitiatorName=<<IQN_INITIATOR_NAME>>" > /etc/iscsi/initiatorname.iscsi
+systemctl restart iscsid
+iscsiadm -m discovery -t st -p <<SRV2_IP>>
 iscsiadm -m node --login
 
+# 2. LVM
 pvcreate /dev/sdb
 vgcreate VG /dev/sdb
 lvcreate -l 100%FREE -n DATA VG
 mkfs.xfs /dev/VG/DATA
 
+# 3. Mount
 mkdir -p /opt/data
-# Узнаем UUID: blkid /dev/VG/DATA
-# Добавляем в fstab: UUID="xxxx" /opt/data xfs _netdev 0 0
+# UUID="<<UUID>>" /opt/data xfs _netdev 0 0  >> /etc/fstab
 mount -a
 
-# NFS
-echo "/opt/data 10.10.30.0/24(rw,sync,no_root_squash)" >> /etc/exports
+# 4. NFS Export
+echo "/opt/data <<NETWORK_CIDR>>(rw,sync,no_root_squash)" >> /etc/exports
 exportfs -ra
 systemctl enable --now nfs-server
 
-apt-get update
+```
+
+---
+
+## 💻 6. Clients (Admin)
+
+### NFS Mount & DB Client
+
+```bash
 apt-get install nfs-clients
 mkdir -p /mnt/nfs
-
-Настройка авто-монтирования (`/etc/fstab`)
-
-# Добавляем строку: IP_SRV1:/path /local_path nfs _netdev 0 0
-echo "10.10.30.11:/opt/data /mnt/nfs nfs _netdev 0 0" >> /etc/fstab
+echo "<<SRV1_IP>>:/opt/data /mnt/nfs nfs _netdev 0 0" >> /etc/fstab
 mount -a
 
-2 Подключение к БД (DBeaver) 
-*Выполняется в графическом интерфейсе*
+```
 
-* **Host**: 192.168.100.11 (srv2-cod)
-* **Database**: postgres
-* **User**: superadmin
-* **Password**: P@ssw0rdSQL
-* 
-# dc-a (Samba AD DC)
+**DBeaver Connection:**
 
-hostnamectl set-hostname dc-a.office.ssa2026.region
-# Проверь /etc/hosts: 192.168.100.10 dc-a.office.ssa2026.region dc-a
+* Host: `<<SRV2_IP>>`
+* Database: `postgres` (or `zabbix`)
+* User: `superadmin`
+* Pass: `<<PASS>>`
 
+---
+
+## 🏢 7. Active Directory (Samba DC)
+
+```bash
+# 1. Provision
+hostnamectl set-hostname <<DC_HOSTNAME>>
 apt-get install samba-dc bind bind-utils
 rm -f /etc/samba/smb.conf
 
 samba-tool domain provision \
-  --realm=OFFICE.SSA2026.REGION \
-  --domain=OFFICE \
-  --adminpass=P@ssw0rd \
+  --realm=<<REALM>> \
+  --domain=<<DOMAIN_SHORT>> \
+  --adminpass=<<PASS>> \
   --server-role=dc \
   --dns-backend=BIND9_DLZ
 
-В файл `/etc/bind/named.conf` (или options) добавь:
-
-
-tkey-gssapi-keytab "/var/lib/samba/private/dns.keytab";
-# В конец файла:
-include "/var/lib/samba/bind-dns/named.conf";
+# 2. Config
+# В named.conf:
+# include "/var/lib/samba/bind-dns/named.conf";
+# tkey-gssapi-keytab "/var/lib/samba/private/dns.keytab";
 
 chgrp named /var/lib/samba/private/dns.keytab
 chmod g+r /var/lib/samba/private/dns.keytab
 
-systemctl stop smb nmb
 systemctl disable smb nmb
 systemctl unmask samba-ad-dc
 systemctl enable --now samba-ad-dc
 systemctl restart bind
 
-# Подразделения
+# 3. Users & Groups
 samba-tool ou create "OU=ofadmins"
-samba-tool ou create "OU=ofusers"
+samba-tool user create <<USER>> <<PASS>> --userou="OU=ofadmins"
+samba-tool group addmembers <<GROUP>> <<USER>>
 
-# Группы
-samba-tool group add ofadmins --groupou="OU=ofadmins"
-samba-tool group add ofusers --groupou="OU=ofusers"
+```
 
-# Пользователи
-samba-tool user create ofadmin1 P@ssw0rd --userou="OU=ofadmins"
-samba-tool user create ofuser1 P@ssw0rd --userou="OU=ofusers"
-samba-tool user create user1 P@ssw0rd
+### Domain Client (cli1-a)
 
-# Добавление в группы
-samba-tool group addmembers ofadmins ofadmin1
-samba-tool group addmembers ofusers ofuser1
-
-# cli1-a (Client)
-
-# Указываем DNS на контроллер домена
-echo "nameserver 192.168.100.10" > /etc/resolv.conf
-
-# Ввод (используй system-auth или net ads join)
-system-auth write ad domain office.ssa2026.region computer cli1-a login administrator password P@ssw0rd
-
-# Включаем Winbind
+```bash
+echo "nameserver <<DC_IP>>" > /etc/resolv.conf
+system-auth write ad domain <<REALM>> computer <<HOSTNAME>> login administrator password <<PASS>>
 systemctl enable --now winbind
 
-2 Групповые политики (ADMC) 
-*Выполняется в графике под ofadmin1*
-
-* Запустить `admc`.
-* Подключиться к домену.
-* GPO -> User Configuration -> Desktop -> Wallpaper (запретить смену, установить картинку).
-* GPO -> User Configuration -> Network -> Prohibit changes.
+```
 
 ---
 
-**Настройка на srv1-cod** 
+## 📊 8. Zabbix (Monitoring)
 
+### Database (SRV2)
+
+```bash
+# pg_hba.conf -> host all all <<NET>> scram-sha-256
+su - postgres
+psql -c "create user zabbix_user with password '<<PASS>>';"
+psql -c "create database zabbix owner zabbix_user;"
+
+```
+
+### Server (SRV1)
+
+```bash
 apt-get install zabbix-server-pgsql zabbix-web-apache-pgsql zabbix-agent
 
-# Вводим пароль P@ssw0rdZabbix
-zcat /usr/share/doc/zabbix-server-pgsql-*/create.sql.gz | psql -h 192.168.100.11 -U zabbix_user -d zabbix
+# Import Schema (Run on SRV1, target SRV2 IP)
+zcat .../create.sql.gz | psql -h <<SRV2_IP>> -U zabbix_user -d zabbix
 
-3 Конфиг `/etc/zabbix/zabbix_server.conf`
-
-DBHost=192.168.100.11
-DBName=zabbix
+# zabbix_server.conf
+DBHost=<<SRV2_IP>>
 DBUser=zabbix_user
-DBPassword=P@ssw0rdZabbix
+DBPassword=<<PASS>>
 
-В конфиге `/etc/httpd2/conf/sites-available/ssl.conf`:
+# SSL (Apache)
+# sites-available/ssl.conf: SSLCertificateFile /var/ca/certs/...
+systemctl enable --now httpd2 zabbix-server
 
-SSLEngine on
-SSLCertificateFile /var/ca/certs/srv1-cod.crt
-SSLCertificateKeyFile /var/ca/private/srv1-cod.key
+```
 
-systemctl enable --now httpd2 zabbix-server zabbix-agent
+---
 
-В файле `/etc/zabbix/zabbix_agentd.conf`:
+## 📞 9. Telephony (Asterisk)
 
+**Web Interface:** `http://<<SIP_SERVER_IP>>`
 
-Server=192.168.100.10
-ServerActive=192.168.100.10
-Hostname=<ИМЯ_ЭТОЙ_МАШИНЫ>
-
-**Настройка SNMP (EcoRouter)** 
-
-snmp-server community public ro
-
-# sip-cod (IP Telephony)
-
-*Настройка через Web-интерфейс (http://IP-SIP-COD)*
-
-1. 
-**Создать Extensions (Chan_SIP)** :
+1. **Extensions:** Create `1001`, `1002`, etc.
+2. **Settings -> Asterisk SIP Settings:**
+* **PJSIP:** Port `5160` (Disable/Change)
+* **Chan_SIP:** Port `5060` (Enable/Bind)
 
 
-* 1001 (admin-cod)
-* 1002 (cli-cod)
-* 2001 (cli1-a)
-* 2002 (cli2-a)
-* Secret: `P@ssw0rd`
-
-
-2. 
-**Настройка портов**:
-
-
-* Settings -> Asterisk SIP Settings.
-* **Chan SIP**: Bind Port `5060`.
-* **PJSIP**: Bind Port `5160` (или отключить).
-
-
-3. 
-**Софтфоны (на клиентах)**:
-
-
-* Установить `linphone`.
-* Вход: `1001@IP_SIP_COD`, пароль `P@ssw0rd`.
+3. **Clients:** Linphone -> `1001@<<SIP_SERVER_IP>>`
