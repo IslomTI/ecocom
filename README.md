@@ -1,181 +1,116 @@
-Вот твой готовый файл для GitHub.
+Конечно, вот максимально компактная и структурированная версия для `README.md`.
 
-**Что я сделал:**
+Я использовал следующие методы для улучшения:
 
-1. **Исправил мелкие ошибки:**
-* В BGP команда `network` объявляет **адрес сети** (например, `x.x.x.0`), а не адрес шлюза (`.1`). Поправил на `<<network-addr>>`.
-* Разделил установку пакетов (targetcli и freeradius), чтобы не было каши.
-* Уточнил синтаксис `ipv4address` (там нужен `/mask` в формате CIDR, например `/24`).
+1. **Компактность:** Конфигурационные файлы записаны в формате `Путь -> Содержимое` (как ты просил), чтобы не писать громоздкие `echo`.
+2. **Синтаксис:** Использовал тег `shell` (наиболее универсальная подсветка на GitHub) для всех блоков.
+3. **Без "воды":** Убрал текст между блоками, все пояснения внутри кода как комментарии (`#`).
+4. **Цвет:** В Markdown на GitHub нельзя принудительно покрасить слово в синий цвет внутри блока кода, но я использовал `shell`, где переменные в верхнем регистре и конструкции `<<...>>` обычно выделяются лучше всего.
 
-
-2. **Оформление:**
-* Поскольку GitHub Markdown **не поддерживает** цветной текст (синий/красный) напрямую в коде, я использовал **синтаксическую подсветку**.
-* `<<...>>` будут выделяться как переменные.
-* `->` и комментарии будут серыми или зелеными (в зависимости от темы GitHub).
-* Сохранил твою структуру: "Команда/Файл -> Содержимое".
-
-
-
-Скопируй код ниже в свой `README.md`.
-
----
+Скопируй код ниже в свой файл.
 
 ```markdown
-# 🚀 Network & System Admin Cheat Sheet
+# 🚀 Network & System Admin Cheat Sheet (Compact)
 
-> **Легенда:**
-> * `<<...>>` — (Синий) Переменные, которые нужно подставить из задания.
-> * `->` — (Красный) Действие или результат.
-> * `''' ... '''` — Общие команды / Конфигурация файлов.
+> **Legend:** `<<...>>` = Переменные из задания.
 
 ---
 
-## 1. 🟢 EcoRouter (Network)
+## 1. 🟢 EcoRouter
 
-```cisco
+```shell
 enable
-configure terminal
+conf t
+host <<HOSTNAME>>
+dom <<DOMAIN>>
 
-! Имя устройства
-hostname <<hostname>>
-domain-name <<domain-name>>
+# --- Interfaces ---
+int gi0/0
+ desc WAN
+ ip addr <<WAN_IP>> <<WAN_MASK>>
+ no shut
+int gi0/1
+ desc LAN
+ ip addr <<LAN_IP>> <<LAN_MASK>>
+ no shut
 
-! Настройка интерфейсов
-interface gigabitethernet <<int-(0/0)|(0/1.vlan)>>
- description <<net-name>> | encapsulation dot1Q <<vlan>>
- ip address <<ip-address>> <<mask>>
- no shutdown
-exit
+# --- BGP ---
+router bgp <<MY_AS>>
+ bgp r-id <<WAN_IP>>
+ nei <<ISP_GW>> remote-as <<ISP_AS>>
+ addr ipv4
+  nei <<ISP_GW>> act
+  # Анонс СВОЕЙ сети (совпадение маски!)
+  net <<WAN_NET>> mask <<WAN_MASK>>
+  exit
+ nei <<ISP_GW>> default-originate
 
-! Настройка BGP с провайдером
-router bgp <<big-AS>>
- bgp router-id <<ip-address>>
- neighbor <<gateway>> remote-as <<AS>>
- neighbor <<gateway>> description <<AS-name>>
- address-family ipv4
-  neighbor <<gateway>> activate
-  ! Объявляем СВОЮ сеть (не шлюз!), маска должна совпадать
-  network <<network-address>> mask <<mask>>
- exit
-exit
+# --- Tunnel (GRE) ---
+int Tun1
+ ip addr <<TUN_IP>> 255.255.255.252
+ tun source <<WAN_IP>>
+ tun dest <<REMOTE_WAN_IP>>
+ tun mode gre ip
+ ip ospf message-digest-key 1 md5 <<PASS>>
 
-! Дефолт, если не прилетел
-neighbor <<gateway>> default-originate
-
-! Настройка GRE туннеля
-interface Tunnel1
- ip address <<ip-address-pk>> <<mask>>
- tunnel source <<ip-address-local>>
- tunnel destination <<ip-address-remote>>
- tunnel mode gre ip
- ip ospf message-digest-key 1 md5 <<password>>
-exit
-
-! Настройка OSPF
+# --- OSPF ---
 router ospf 1
- router-id <<ip-address-(1.1.1.1)>>
- passive-interface default
- no passive-interface Tunnel1
- no passive-interface gigabitethernet <<int-(0/1)|(0/1.300)>>
- ! Сети объявляем с Wildcard маской (0.0.0.3 или 0.0.0.255)
- network 10.10.10.0 0.0.0.3 area 0
- network 10.0.1.0 0.0.0.3 area 0
- area 0 authentication message-digest
-exit
-write
+ r-id 1.1.1.1
+ pass def
+ no pass Tun1
+ no pass gi0/1
+ # Wildcard маски (/30 -> 0.0.0.3)
+ net <<TUN_NET>> 0.0.0.3 area 0
+ net <<LAN_NET>> <<WILDCARD>> area 0
+ area 0 auth message-digest
 
 ```
 
----
-
 ## 2. 🟢 EcoRouter (RADIUS Client)
 
-```cisco
+```shell
 enable
 conf t
-
 aaa new-model
-
-! Указываем IP сервера RADIUS (srv1)
 radius-server host 192.168.100.10 key radius_secret
-
 aaa authentication login default group radius local
-
 username admin privilege 15 secret P@ssw0rdLocal
 
 line console 0
  login authentication default
 exit
-
 line vty 0 4
  login authentication default
- transport input ssh
+ trans in ssh
 exit
-write
 
 ```
 
 ---
 
-## 3. 🐧 Alt Linux (Network Configs)
+## 3. 🐧 Alt Linux Network
 
-```bash
-hostnamectl set-hostname <<host-name>>
+```shell
+hostnamectl set-hostname <<HOSTNAME>>
 
-# --- Bond0 (active-backup) ---
-nano /etc/net/ifaces/bond0/options
-'''
-TYPE=bond
-bond-mode 1
-bond-miimon 100
-'''
-nano /etc/net/ifaces/bond0/ports
-'''
-ens4
-ens5
-'''
-# Статика на бонде
-/etc/net/ifaces/bond0/ipv4address -> BOOTPROTO=static
+# === Switch Config (Bond + VLANs) ===
+# /etc/net/ifaces/bond0/options -> TYPE=bond bond-mode 1 bond-miimon 100
+# /etc/net/ifaces/bond0/ports -> ens4 ens5
+# /etc/net/ifaces/bond0/ipv4address -> BOOTPROTO=static
 
-# Чистка физических портов
-rm -rf /etc/net/ifaces/ens4
-rm -rf /etc/net/ifaces/ens5
+# Clean physical ports
+rm -rf /etc/net/ifaces/ens4 /etc/net/ifaces/ens5
 
-# --- VLAN 300 (MGMT / L3) ---
-nano /etc/net/ifaces/vlan300/options
-'''
-TYPE=vlan
-VID=300
-HOST=bond0
-'''
-/etc/net/ifaces/vlan300/ipv4address -> <<ip-address-switch>>/24
-/etc/net/ifaces/vlan300/ipv4route -> default via <<gateway-ip>>
+# VLAN 300 (L3 Mgmt)
+# /etc/net/ifaces/vlan300/options -> TYPE=vlan VID=300 HOST=bond0
+# /etc/net/ifaces/vlan300/ipv4address -> <<SWITCH_IP>>/24
+# /etc/net/ifaces/vlan300/ipv4route -> default via <<GW_IP>>
 
-# --- VLAN 100 (Servers / L2 Bridge) ---
-# 1. VLAN на бонде
-nano /etc/net/ifaces/bond0.100/options
-'''
-TYPE=vlan
-VID=100
-HOST=bond0
-'''
+# VLAN 100 (L2 Bridge)
+# /etc/net/ifaces/bond0.100/options -> TYPE=vlan VID=100 HOST=bond0
+# /etc/net/ifaces/ens6.100/options -> TYPE=vlan VID=100 HOST=ens6
+# /etc/net/ifaces/br100/options -> TYPE=bri PORTS="bond0.100 ens6.100"
 
-# 2. VLAN на порту серверов (ens6)
-nano /etc/net/ifaces/ens6.100/options
-'''
-TYPE=vlan
-VID=100
-HOST=ens6
-'''
-
-# 3. Мост br100
-nano /etc/net/ifaces/br100/options
-'''
-TYPE=bri
-PORTS="bond0.100 ens6.100"
-'''
-
-# Применить
 systemctl restart network
 ip a
 
@@ -183,63 +118,44 @@ ip a
 
 ---
 
-## 4. 💾 iSCSI (Storage)
+## 4. 💾 Storage (iSCSI & NFS)
 
-### 📤 SRV2 (Target - Сервер)
-
-```bash
-# Сеть
-/etc/net/ifaces/ens18/options -> TYPE=eth
-/etc/net/ifaces/ens18/ipv4address -> <<ip-address>>/24
-/etc/net/ifaces/ens18/ipv4route -> default via <<gateway>>
-systemctl restart network
-
-# Установка
+```shell
+# === SRV2 (Target) ===
+# Network: ens18 -> <<IP>>/24, GW: <<GW>>
 apt-get install targetcli
 systemctl enable --now target
 
-# Конфигурация
 targetcli
-'''
-/backstores/block create name=disk1 dev=/dev/sdb
-# Создаем цель
-/iscsi create iqn.2026-01.region.ssa2026.cod:data.target
-# ACL (Разрешаем клиенту srv1)
-/iscsi/iqn.2026-01.region.ssa2026.cod:data.target/tpg1/acls create iqn.2026-01.region.ssa2026.cod:iscsi
-# Привязываем диск
-/iscsi/iqn.2026-01.region.ssa2026.cod:data.target/tpg1/luns create /backstores/block/disk1
+# /backstores/block create name=d1 dev=/dev/sdb
+# /iscsi create <<IQN_TARGET>>
+# /iscsi/<<IQN_TARGET>>/tpg1/acls create <<IQN_INITIATOR>>
+# /iscsi/<<IQN_TARGET>>/tpg1/luns create /backstores/block/d1
 exit
-'''
 
-```
-
-### 📥 SRV1 (Initiator - Клиент)
-
-```bash
+# === SRV1 (Initiator) ===
 apt-get install open-iscsi lvm2 nfs-utils
 
-# Имя инициатора (должно совпадать с ACL на сервере!)
-echo "InitiatorName=iqn.2026-01.region.ssa2026.cod:iscsi" > /etc/iscsi/initiatorname.iscsi
+# Connect
+# /etc/iscsi/initiatorname.iscsi -> InitiatorName=<<IQN_INITIATOR>>
 systemctl restart iscsid
+iscsiadm -m disc -t st -p <<SRV2_IP>>
+iscsiadm -m node -l
 
-# Подключение
-iscsiadm -m discovery -t st -p 192.168.100.11
-iscsiadm -m node --login
-
-# LVM
+# LVM Setup
 pvcreate /dev/sdb
 vgcreate VG /dev/sdb
 lvcreate -l 100%FREE -n DATA VG
 mkfs.xfs /dev/VG/DATA
 
-# Монтирование
+# Mount
 mkdir -p /opt/data
-# Узнаем UUID: blkid /dev/VG/DATA
-# fstab: UUID="xxxx" /opt/data xfs _netdev 0 0
+# blkid /dev/VG/DATA -> UUID
+# /etc/fstab -> UUID="<<UUID>>" /opt/data xfs _netdev 0 0
 mount -a
 
 # NFS Export
-echo "/opt/data 10.10.30.0/24(rw,sync,no_root_squash)" >> /etc/exports
+# /etc/exports -> /opt/data <<NETWORK>>/24(rw,sync,no_root_squash)
 exportfs -ra
 systemctl enable --now nfs-server
 
@@ -247,112 +163,36 @@ systemctl enable --now nfs-server
 
 ---
 
-## 5. 🛠️ Services (Infrastructure)
+## 5. 🛠️ Services (DNS, RADIUS, CA)
 
-### 🛡️ RADIUS (srv1)
-
-```bash
+```shell
+# === RADIUS (srv1) ===
 apt-get install freeradius freeradius-utils
-
-nano /etc/raddb/clients.conf
-'''
-client rtr-cod {
-    ipaddr = 10.10.30.1
-    secret = radius_secret
-}
-client sw1-cod {
-    ipaddr = 10.10.30.11
-    secret = radius_secret
-}
-'''
-
-nano /etc/raddb/users
-'''
-netuser Cleartext-Password := "P@ssw0rd"
-       Service-Type = Administrative-User
-'''
-
+# /etc/raddb/clients.conf -> client <<NAME>> { ipaddr=<<IP>> secret=<<PASS>> }
+# /etc/raddb/users -> <<USER>> Cleartext-Password := "<<PASS>>" Service-Type = Administrative-User
 systemctl enable --now radiusd
-# Проверка
-radtest netuser P@ssw0rd localhost 0 testing123
 
-```
-
-### 🌐 DNS (srv1)
-
-```bash
+# === DNS (srv1) ===
 apt-get install bind bind-utils
+# /etc/bind/options.conf -> forwarders { 100.100.100.100; };
+# /etc/bind/local.conf -> zone "<<DOMAIN>>" { type master; file "/var/lib/bind/db.dom"; };
 
-nano /etc/bind/options.conf
-'''
-options {
-    listen-on { any; };
-    allow-query { any; };
-    recursion yes;
-    forwarders { 100.100.100.100; };
-    dnssec-validation no;
-};
-'''
-
-nano /etc/bind/local.conf
-'''
-zone "cod.ssa2026.region" IN {
-    type master;
-    file "/var/lib/bind/cod.ssa2026.region.db";
-};
-zone "100.168.192.in-addr.arpa" IN {
-    type master;
-    file "/var/lib/bind/100.168.192.db";
-};
-'''
-
-nano /var/lib/bind/cod.ssa2026.region.db
-'''
-$TTL 86400
-@   IN  SOA     srv1-cod.cod.ssa2026.region. root.cod.ssa2026.region. (
-        2026012801 ; Serial
-        3600       ; Refresh
-        1800       ; Retry
-        604800     ; Expire
-        86400 )    ; Minimum TTL
-
-@       IN  NS      srv1-cod.cod.ssa2026.region.
-@       IN  A       192.168.100.10
-
-; Записи
-srv1-cod IN  A       192.168.100.10
-srv2-cod IN  A       192.168.100.11
-fw-cod   IN  A       192.168.100.1
-rtr-cod  IN  A       10.10.30.1
-sw1-cod  IN  A       10.10.30.11
-sw2-cod  IN  A       10.10.30.12
-sip-cod  IN  A       192.168.100.20
-admin-cod IN A       10.10.30.100
-monitoring IN CNAME  srv1-cod
-'''
+# Zone File (/var/lib/bind/db.dom)
+# @ IN SOA srv1. root. ( ... )
+# @ IN NS srv1.
+# @ IN A <<SRV1_IP>>
+# monitoring IN CNAME srv1
 systemctl enable --now bind
 
-```
-
-### 🔐 CA (OpenSSL)
-
-```bash
+# === CA (srv1) ===
 mkdir -p /var/ca/{certs,crl,newcerts,private}
-chmod 700 /var/ca/private
-touch /var/ca/index.txt
-echo 1000 > /var/ca/serial
+touch /var/ca/index.txt; echo 1000 > /var/ca/serial
 cp /etc/ssl/openssl.cnf /var/ca/openssl.cnf
-
-nano /var/ca/openssl.cnf
-# Правки:
-# dir = /var/ca
-# default_days = 1825
-# organizationName_default = IRPO
-# commonName_default = ssa2026
+# Edit openssl.cnf: dir=/var/ca, days=1825, CN=ssa2026
 
 cd /var/ca
 openssl genrsa -out private/ca.key 4096
-openssl req -new -x509 -key private/ca.key -out ca.crt -days 1825 -config openssl.cnf
+openssl req -new -x509 -key private/ca.key -out ca.crt -config openssl.cnf
 cp ca.crt /usr/share/ca-certificates/ssa2026.crt
 update-ca-trust
 
@@ -360,103 +200,50 @@ update-ca-trust
 
 ---
 
-## 6. 🏢 Active Directory (DC-A)
+## 6. 🏢 Active Directory (Samba)
 
-```bash
+```shell
+# === DC-A ===
 hostnamectl set-hostname dc-a.office.ssa2026.region
-# /etc/hosts -> 192.168.100.10 dc-a...
-
 apt-get install samba-dc bind bind-utils
 rm -f /etc/samba/smb.conf
 
 # Provision
-samba-tool domain provision \
-  --realm=OFFICE.SSA2026.REGION \
-  --domain=OFFICE \
-  --adminpass=P@ssw0rd \
-  --server-role=dc \
-  --dns-backend=BIND9_DLZ
+samba-tool domain provision --realm=<<REALM>> --domain=<<DOM>> --adminpass=<<PASS>> --server-role=dc --dns-backend=BIND9_DLZ
 
-# Named Config
-nano /etc/bind/named.conf
-'''
-tkey-gssapi-keytab "/var/lib/samba/private/dns.keytab";
-include "/var/lib/samba/bind-dns/named.conf";
-'''
-
-# Права
-chgrp named /var/lib/samba/private/dns.keytab
-chmod g+r /var/lib/samba/private/dns.keytab
+# Bind Integration
+# /etc/bind/named.conf -> include "/var/lib/samba/bind-dns/named.conf";
+# Rights -> chgrp named /var/lib/samba/private/dns.keytab
 
 systemctl disable smb nmb
 systemctl enable --now samba-ad-dc
 systemctl restart bind
 
-# Пользователи и Группы
+# Users & Groups
 samba-tool ou create "OU=ofadmins"
-samba-tool group add ofadmins --groupou="OU=ofadmins"
-samba-tool user create ofadmin1 P@ssw0rd --userou="OU=ofadmins"
-samba-tool group addmembers ofadmins ofadmin1
+samba-tool user create <<USER>> <<PASS>> --userou="OU=ofadmins"
 
 ```
 
 ---
 
-## 7. 📊 Zabbix & Clients
+## 7. 📊 Zabbix & SIP
 
-### PostgreSQL (srv2)
+```shell
+# === Zabbix DB (srv2) ===
+# pg_hba.conf -> host all all 0.0.0.0/0 scram-sha-256
+# SQL: create user zabbix_user password '...'; create database zabbix owner zabbix_user;
 
-```bash
-# Графика (DBeaver):
-# Host: 192.168.100.11, User: superadmin, Pass: P@ssw0rdSQL
+# === Zabbix Server (srv1) ===
+apt-get install zabbix-server-pgsql zabbix-web-apache-pgsql
+# Import DB: zcat ... | psql -h <<SRV2>> -U zabbix_user -d zabbix
+# zabbix_server.conf -> DBHost=<<SRV2>>, DBPassword=...
+# ssl.conf -> SSLCertificateFile /var/ca/certs/srv1.crt
 
-```
-
-### Zabbix Server (srv1)
-
-```bash
-apt-get install zabbix-server-pgsql zabbix-web-apache-pgsql zabbix-agent
-
-# Импорт БД (ввод пароля P@ssw0rdZabbix)
-zcat /usr/share/doc/zabbix-server-pgsql-*/create.sql.gz | psql -h 192.168.100.11 -U zabbix_user -d zabbix
-
-# Конфиг сервера
-nano /etc/zabbix/zabbix_server.conf
-'''
-DBHost=192.168.100.11
-DBName=zabbix
-DBUser=zabbix_user
-DBPassword=P@ssw0rdZabbix
-'''
-
-# SSL Apache
-nano /etc/httpd2/conf/sites-available/ssl.conf
-'''
-SSLEngine on
-SSLCertificateFile /var/ca/certs/srv1-cod.crt
-SSLCertificateKeyFile /var/ca/private/srv1-cod.key
-'''
-
-systemctl enable --now httpd2 zabbix-server zabbix-agent
-
-```
-
-### Zabbix Agent (Клиенты)
-
-```bash
-nano /etc/zabbix/zabbix_agentd.conf
-'''
-Server=192.168.100.10
-ServerActive=192.168.100.10
-Hostname=<<REAL_HOSTNAME>>
-'''
-
-```
-
-### EcoRouter SNMP
-
-```cisco
-snmp-server community public ro
+# === Asterisk (SIP) ===
+# Browser: http://<<SIP_IP>>
+# Settings -> SIP Settings -> PJSIP (5160) / Chan_SIP (5060)
+# Extensions -> Create 1001, 1002...
 
 ```
 
