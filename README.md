@@ -1,3 +1,4 @@
+```
 enable
 configure terminal
 
@@ -224,6 +225,7 @@ create database zabbix owner <<DB_USER>>;
 # Импорт схемы (запуск на srv1, заливка на srv2)
 zcat .../create.sql.gz | psql -h <<SRV2_IP>> -U <<DB_USER>> -d zabbix
 
+```
 # zabbix_server.conf
 DBHost=<<SRV2_IP>>
 DBUser=<<DB_USER>>
