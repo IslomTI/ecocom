@@ -1,5 +1,5 @@
 # EсoRouters
-1|||
+<1>
 ```
 enable
 configure terminal
@@ -52,7 +52,7 @@ router ospf 1
 exit
 write
 ```
-1|||
+<1>
 # Ecorouter (RADIUS Client)
 ```
 enable
@@ -71,8 +71,8 @@ line vty 0 4
 exit
 write
 ```
-#Alt Linuxs
-2|||
+# Alt Linuxs
+<2>
 ```
 hostnamectl set-hostname <<host-name>>
 ```
@@ -105,7 +105,7 @@ TYPE=vlan
 VID=100
 HOST=bond0
 ```
-2|||
+<2>
 VLAN на порту серверов (ens6)
 ```
 nano /etc/net/ifaces/ens6.100/options
@@ -120,26 +120,25 @@ TYPE=bri
 bond0.100
 ens6.100
 ```
-3|||
+<3>
 ```
 systemctl restart network
 ip a
 ```
-3|||
+<3>
 # srv1-2-cod (Alt Linux) - iSCSI Target
-4|||
+<4>
 ```
 /etc/net/ifaces/ens18/options -> TYPE=eth
 /etc/net/ifaces/ens18/ipv4address -> <<ip-adress/mask32>>
 /etc/net/ifaces/ens18/ipv4route -> default via <<shlus>>
 systemctl restart network
 ```
-4|||
+<4>
 ```
 apt-get install targetcli | freeradius freeradius-utils
 systemctl enable --now target
 ```
-
 targetcli
 ```
 /backstores/block create name=disk1 dev=/dev/sdb
